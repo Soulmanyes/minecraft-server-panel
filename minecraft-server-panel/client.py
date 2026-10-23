@@ -13,6 +13,7 @@
   client.py install pick|FILE      upload a server pack zip (pick: choose it with zenity) and
                                    unpack it into a new folder on the server, in the background
   client.py install url URL        let the server download a server pack zip and unpack it
+  client.py install box NAME       unpack a zip that is already in the box's home directory
   client.py setup KIND ID [ARG]    a new server's setup step (see agent.py)
   client.py action installer ID JAR  run a Forge/NeoForge installer in the server's console
   client.py deploy                 copy server/agent.py to the server
@@ -360,6 +361,10 @@ def main(argv):
 		print(json.dumps(data if data is not None else {"ok": False, "error": error}))
 	elif argv[:1] == ["candidates"]:
 		print(json.dumps({"ok": True, "candidates": candidates()}))
+	elif len(argv) == 3 and argv[:2] == ["install", "box"]:
+		data, error = ssh("python3", "-I", REMOTE, "unpack-home", shlex.quote(argv[2]))
+		drop_cache()
+		print(json.dumps(data if data is not None else {"ok": False, "error": error}))
 	elif len(argv) == 3 and argv[:2] == ["install", "url"]:
 		data, error = ssh("python3", "-I", REMOTE, "fetch", shlex.quote(argv[2]))
 		drop_cache()

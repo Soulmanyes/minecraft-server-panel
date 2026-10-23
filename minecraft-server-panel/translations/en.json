@@ -120,7 +120,16 @@
     "no-host": "No ssh host set. Open this plugin's settings and enter the ssh host of your server box.",
     "deploy": "Install agent on the box",
     "deploy-tip": "Copies server/agent.py to the box's agent folder over ssh.",
-    "deploy-done": "Agent installed on the box."
+    "deploy-done": "Agent installed on the box.",
+    "add-box": "Zips already on the box",
+    "add-unpack": "Unpack",
+    "add-unpack-tip": "Unpacks it into a new folder next to it. The zip stays.",
+    "setup-make-run-jar": "Make run.sh for {jar}",
+    "setup-make-run-jar-tip": "Writes run.sh with: java -jar <jar> nogui",
+    "setup-java": "Java",
+    "setup-java-default": "Default",
+    "setup-java-needed": "Minecraft {mc} needs Java {java}",
+    "setup-java-current": "Runs {java}"
   },
   "settings": {
     "host": {

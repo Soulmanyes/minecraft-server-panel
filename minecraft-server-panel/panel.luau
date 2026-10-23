@@ -648,6 +648,20 @@ local function addCard(view)
       })
     end
   end
+  local boxZips = view and view.box_zips or {}
+  if #boxZips > 0 then
+    rows[#rows + 1] = ui.label({ text = noctalia.tr("ui.add-box"), fontSize = 12, fontWeight = "bold" })
+    for _, z in ipairs(boxZips) do
+      local name = z.name
+      rows[#rows + 1] = ui.row({ key = "boxzip-" .. tostring(name), align = "center", gap = 8, paddingH = 20 }, {
+        ui.label({ text = "~/" .. tostring(name), fontSize = 11, flexGrow = 1, maxLines = 1 }),
+        ui.label({ text = shared.bytes(z.size) .. " · " .. shared.ago(z.time), fontSize = 11, color = "on_surface_variant" }),
+        ui.button({ text = noctalia.tr("ui.add-unpack"), glyph = "package-import", variant = "outline", controlSize = "sm",
+          enabled = not busy, tooltip = noctalia.tr("ui.add-unpack-tip"),
+          onClick = function() startInstall({ "install", "box", name }) end }),
+      })
+    end
+  end
   rows[#rows + 1] = ui.row({ align = "center", gap = 8 }, {
     ui.button({ text = noctalia.tr("ui.add-pick"), glyph = "folder-open", variant = "outline", controlSize = "sm",
       enabled = not busy, onClick = function() startInstall({ "install", "pick" }) end }),
@@ -865,6 +879,11 @@ local function setupCard(s, view)
         glyph = "package", variant = "outline", controlSize = "sm", enabled = not working,
         tooltip = noctalia.tr("ui.setup-installer-tip"), onClick = function() act(s, "installer", jar) end })
     end
+    for _, jar in ipairs(s.jars or {}) do
+      choices[#choices + 1] = ui.button({ text = noctalia.tr("ui.setup-make-run-jar", { jar = tostring(jar) }),
+        glyph = "file-plus", variant = "outline", controlSize = "sm", enabled = not working,
+        tooltip = noctalia.tr("ui.setup-make-run-jar-tip"), onClick = function() setupStep(s, "make-run", jar) end })
+    end
     for _, script in ipairs(s.starters or {}) do
       choices[#choices + 1] = ui.button({ text = noctalia.tr("ui.setup-use-script", { script = tostring(script) }),
         glyph = "terminal", variant = "outline", controlSize = "sm", enabled = not working,
@@ -878,6 +897,28 @@ local function setupCard(s, view)
     for _, r in ipairs(convertRows(s)) do
       rows[#rows + 1] = r
     end
+  end
+  -- Java: which install the start script runs, with the one the Minecraft version needs marked.
+  if s.script ~= nil and s.script ~= "" and #(s.javas or {}) > 0 then
+    local needed = tonumber(s.java_needed) or 0
+    local cells = {
+      ui.glyph({ name = "coffee", size = 14, color = "on_surface_variant" }),
+      ui.label({ text = noctalia.tr("ui.setup-java"), fontSize = 11, color = "on_surface_variant" }),
+    }
+    local options = { { label = noctalia.tr("ui.setup-java-default"), path = "java" } }
+    for _, j in ipairs(s.javas) do
+      options[#options + 1] = { label = tostring(j.major) .. (tonumber(j.major) == needed and " ✓" or ""), path = j.path }
+    end
+    for _, o in ipairs(options) do
+      local current = tostring(s.java) == o.path
+      cells[#cells + 1] = ui.button({ text = o.label, variant = current and "primary" or "outline", controlSize = "sm",
+        enabled = not working and not current, tooltip = o.path,
+        onClick = function() setupStep(s, "java", o.path) end })
+    end
+    local hint = needed > 0 and noctalia.tr("ui.setup-java-needed", { mc = tostring(s.mc), java = tostring(needed) })
+      or noctalia.tr("ui.setup-java-current", { java = tostring(s.java) })
+    cells[#cells + 1] = ui.label({ text = hint, fontSize = 11, color = "on_surface_variant", flexGrow = 1, maxLines = 2 })
+    rows[#rows + 1] = ui.row({ align = "center", gap = 6 }, cells)
   end
   -- Port, RAM, EULA
   for _, r in ipairs(portRows(s, view, working)) do

@@ -11,8 +11,9 @@
   agent.py free                    JSON: free disk space in bytes
   agent.py unpack UPLOAD NAME      unzip APP/uploads/UPLOAD into a new ~/<folder>
   agent.py fetch URL               download a server pack zip and unpack it (in the background)
+  agent.py unpack-home NAME        unpack ~/NAME.zip already on the box (in the background; kept)
   agent.py setup KIND ID [ARG]     a step of a new server's setup: port N, eula, script NAME,
-                                   convert, save-run, installer JAR, finish, remove
+                                   convert, save-run, make-run JAR, java PATH, finish, remove
                                   starts the action in the background and returns at once;
                                   its progress shows up in `status`
 
@@ -90,7 +91,8 @@ def pretty(folder):
 	name = folder.replace("_", " ")
 	name = re.split(r"(?i)[\s-]*server", name)[0] or name
 	name = re.sub(r"[\s-]+\d+\.[\d.]*$", "", name).strip(" -")
-	return name or folder
+	# "Server 1.3.5.2" would come out as just "Server": keep the folder name then.
+	return folder.replace("_", " ") if name.lower() in ("", "server") else name
 
 
 def properties(path):
@@ -458,8 +460,9 @@ def after_java(text, missing):
 	out = []
 	done = False
 	for line in text.split("\n"):
-		if not done and not line.lstrip().startswith("#") and re.match(r"\s*(exec\s+)?java\s", line):
-			line = re.sub(r"\bjava\s", "java " + " ".join(missing) + " ", line, count=1)
+		if not done and not line.lstrip().startswith("#") and JAVA_LINE.search(line):
+			# After `java` or a full path to it (set by the panel's Java choice).
+			line = JAVA_LINE.sub(lambda m: m.group(1) + m.group(2) + " " + " ".join(missing) + m.group(3), line, count=1)
 			done = True
 		out.append(line)
 	if not done:
@@ -531,7 +534,8 @@ def pack_info(s):
 		except OSError:
 			continue
 		if m:
-			loader = {"neoforge": "NeoForge", "forge": "Forge", "fabric": "Fabric"}[m.group(1)] + " " + m.group(2)
+			loader = {"neoforge": "NeoForge", "forge": "Forge", "fabric": "Fabric"}[m.group(1)] + " " + \
+				re.sub(r"(-universal|-server)?\.jar$", "", m.group(2))
 			break
 	mods = os.path.join(s["dir"], "mods")
 	count = len([n for n in os.listdir(mods) if n.endswith(".jar")]) if os.path.isdir(mods) else 0
@@ -717,23 +721,29 @@ def read_fetch():
 	return fetch
 
 
-def setup_entry(s, javas, panes):
+def setup_entry(s, procs, panes):
 	"""What a folder unpacked from the panel still needs before it can start."""
 	d, mark = s["dir"], s["mark"]
 	top = sorted(n for n in os.listdir(d) if os.path.isfile(os.path.join(d, n)))
 	low = {n: n.lower() for n in top}
 	entry = {k: s[k] for k in ("id", "name", "folder")}
 	entry.update({
-		"state": "installing" if javas.get(d) else "setup",
+		"state": "installing" if procs.get(d) else "setup",
 		"script": s["script"] or "",
 		"bats": [n for n in top if low[n].endswith(".bat") and ("run" in low[n] or "start" in low[n])],
 		"installers": [n for n in top if low[n].endswith(".jar") and "installer" in low[n]],
 		"starters": [n for n in top if n.endswith(".sh") and n != "run.sh" and "start" in low[n]],
+		# A server jar to run directly (old Forge, Fabric's launcher), not the vanilla jar or an installer.
+		"jars": [n for n in top if low[n].endswith(".jar") and "installer" not in low[n]
+			and not low[n].startswith("minecraft_server") and ("forge" in low[n] or "server" in low[n] or "fabric" in low[n])],
 		"port": mark.get("port", 0),
 		"eula": properties(os.path.join(d, "eula.txt")).get("eula", "").lower() == "true",
 		"source": mark.get("source", ""),
 		"installed": mark.get("installed", 0),
 	})
+	entry["mc"], entry["java_needed"] = mc_java(top + [s["folder"]])
+	entry["javas"] = [{"major": k, "path": v} for k, v in sorted(javas().items())]
+	entry["java"] = script_java(d, s["script"]) if s["script"] else ""
 	if s["script"]:
 		h = heap(d)
 		entry["ram"] = {"min": h["min"], "max": h["max"], "file": h["file"]}
@@ -805,7 +815,8 @@ def status():
 			if info:
 				players = info.get("players") or {}
 				entry.update({
-					"state": "running",
+					# Old Forge answers pings while it still loads, with no player slots yet.
+					"state": "running" if players.get("max") else "starting",
 					"online": players.get("online", 0),
 					"max": players.get("max", s["max_players"]),
 					"names": [p.get("name", "") for p in players.get("sample") or [] if p.get("name")],
@@ -831,7 +842,7 @@ def status():
 				entry["state"] = "starting"
 		out.append(entry)
 	return {"time": int(time.time()), "host": host(round(100.0 * (1 - (i1 - i0) / span), 1)), "servers": out,
-		"setup": [setup_entry(s, javas, panes) for s in setup], "fetch": read_fetch()}
+		"setup": [setup_entry(s, javas, panes) for s in setup], "fetch": read_fetch(), "box_zips": box_zips()}
 
 
 # Actions -------------------------------------------------------------------
@@ -1086,11 +1097,13 @@ def write_marker(folder, **fields):
 	save_json(os.path.join(folder, MARKER), mark)
 
 
-def unpack(upload, name):
-	"""Unzips uploads/<upload> into a new ~/<folder> and returns the folder
-	name: the zip's one top-level folder, else name. Nothing is overwritten.
-	The upload is removed afterwards, whatever happens."""
-	path = os.path.join(UPLOADS, os.path.basename(upload))
+def unpack(upload, name, path=None):
+	"""Unzips uploads/<upload> (or the zip at path) into a new ~/<folder> and
+	returns the folder name: the zip's one top-level folder, else name. Nothing
+	is overwritten. An upload is removed afterwards, whatever happens; a zip
+	given by path is kept."""
+	keep = path is not None
+	path = path or os.path.join(UPLOADS, os.path.basename(upload))
 	staging = None
 	try:
 		with zipfile.ZipFile(path) as z:
@@ -1127,10 +1140,89 @@ def unpack(upload, name):
 	finally:
 		if staging and os.path.isdir(staging):
 			shutil.rmtree(staging, ignore_errors=True)
+		if not keep:
+			try:
+				os.remove(path)
+			except OSError:
+				pass
+
+
+def box_zips():
+	"""[{name, size, time}] of the zips in the box's home directory, newest first."""
+	out = []
+	for n in os.listdir(HOME):
+		path = os.path.join(HOME, n)
+		if n.lower().endswith(".zip") and os.path.isfile(path):
+			st = os.stat(path)
+			out.append({"name": n, "size": st.st_size, "time": int(st.st_mtime)})
+	return sorted(out, key=lambda z: z["time"], reverse=True)
+
+
+def unpack_home(name):
+	"""Unpacks ~/<name> like an upload, reporting to FETCH; the zip stays."""
+	started = int(time.time())
+
+	def report(phase, **fields):
+		save_json(FETCH, dict(fields, phase=phase, name=name, started=started, updated=int(time.time())))
+	report("unpacking")
+	try:
+		folder = unpack(None, re.sub(r"(?i)\.zip$", "", name), path=os.path.join(HOME, name))
+		report("done", folder=folder)
+	except Exception as e:  # noqa: BLE001 - reported to the panel
+		report("failed", error=str(e))
+
+
+# The Java a Minecraft version needs: up to 1.16 Java 8, up to 1.20.4 Java 17, then 21.
+MC_VERSION = re.compile(r"(?:minecraft_server\.|forge-|minecraft-|neoforge-|server-)1\.(\d+)(?:\.(\d+))?")
+
+
+def javas():
+	"""{major: path} of the Java installs on the box, plus "" for the default java."""
+	out = {}
+	for root in ("/usr/lib/jvm", "/usr/lib64/jvm", "/opt"):
 		try:
-			os.remove(path)
+			names = sorted(os.listdir(root))
 		except OSError:
-			pass
+			continue
+		for n in names:
+			m = re.search(r"(?:java|jdk|jre|temurin|openjdk)[-_]?(?:1\.)?(\d+)", n)
+			if not m or os.path.islink(os.path.join(root, n)):
+				continue
+			for path in (os.path.join(root, n, "bin", "java"), os.path.join(root, n, "jre", "bin", "java")):
+				if os.access(path, os.X_OK):
+					out.setdefault(int(m.group(1)), path)
+					break
+	return out
+
+
+def mc_java(names):
+	"""(minecraft version, java major it needs) guessed from file names, or ("", 0)."""
+	for n in names:
+		m = MC_VERSION.search(n)
+		if m:
+			minor, patch = int(m.group(1)), int(m.group(2) or 0)
+			java = 8 if minor <= 16 else 17 if (minor, patch) < (20, 5) else 21
+			return f"1.{minor}" + (f".{patch}" if m.group(2) else ""), java
+	for n in names:
+		m = re.search(r"neoforge-(2\d)\.(\d+)", n)  # NeoForge 21.1.x is for Minecraft 1.21.1
+		if m:
+			minor, patch = int(m.group(1)), int(m.group(2))
+			return f"1.{minor}" + (f".{patch}" if patch else ""), 17 if (minor, patch) < (20, 5) else 21
+	return "", 0
+
+
+JAVA_LINE = re.compile(r"^(\s*(?:exec\s+)?)(\S*java)(\s)", re.MULTILINE)
+
+
+def script_java(folder, script):
+	"""The java command the start script runs: "java" or a full path, or ""."""
+	try:
+		with open(os.path.join(folder, script), errors="replace") as f:
+			text = "\n".join(l for l in f.read().split("\n") if not l.lstrip().startswith("#"))
+	except OSError:
+		return ""
+	m = JAVA_LINE.search(text)
+	return m.group(2) if m else ""
 
 
 def fetch(url):
@@ -1285,6 +1377,35 @@ def setup_step(kind, s, arg):
 		with open(path, "w") as f:
 			f.write(suggestion)
 		os.chmod(path, 0o755)
+	elif kind == "make-run":
+		if "/" in arg or not arg.endswith(".jar") or not os.path.isfile(os.path.join(d, arg)):
+			raise RuntimeError(f"no {arg} in the folder")
+		path = os.path.join(d, "run.sh")
+		if os.path.exists(path):
+			raise RuntimeError("run.sh already exists")
+		with open(path, "w") as f:
+			f.write(f"#!/usr/bin/env sh\njava -jar {shlex.quote(arg)} nogui \"$@\"\n")
+		os.chmod(path, 0o755)
+	elif kind == "java":
+		found = javas()
+		if arg not in ("java", *found.values()):
+			raise RuntimeError(f"no Java at {arg}")
+		if not s["script"]:
+			raise RuntimeError("make a start script first")
+		path = os.path.join(d, s["script"])
+		with open(path, errors="surrogateescape") as f:
+			text = f.read()
+		lines, done = text.split("\n"), False
+		for i, line in enumerate(lines):
+			if not done and not line.lstrip().startswith("#") and JAVA_LINE.search(line):
+				lines[i] = JAVA_LINE.sub(lambda m: m.group(1) + arg + m.group(3), line, count=1)
+				done = True
+		if not done:
+			raise RuntimeError(f"no java line in {s['script']}")
+		with open(path + ".tmp", "w", errors="surrogateescape") as f:
+			f.write("\n".join(lines))
+		os.chmod(path + ".tmp", os.stat(path).st_mode)
+		os.replace(path + ".tmp", path)
 	elif kind == "finish":
 		missing = [what for what, ok in (("a start script", s["script"]), ("a port", s["mark"].get("port")),
 			("the EULA", properties(os.path.join(d, "eula.txt")).get("eula", "").lower() == "true")) if not ok]
@@ -1417,6 +1538,20 @@ def main(argv):
 		subprocess.Popen([sys.executable, "-I", os.path.abspath(__file__), "_fetch", argv[1]],
 			stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 		print(json.dumps({"ok": True}))
+	elif len(argv) == 2 and argv[0] == "unpack-home":
+		if argv[1] not in [z["name"] for z in box_zips()]:
+			print(json.dumps({"ok": False, "error": f"no ~/{argv[1]}"}))
+			return 1
+		fetching = read_fetch()
+		if fetching and fetching.get("phase") not in ("done", "failed"):
+			print(json.dumps({"ok": False, "error": "a download or unpack is already running"}))
+			return 1
+		save_json(FETCH, {"phase": "unpacking", "name": argv[1], "started": int(time.time()), "updated": int(time.time())})
+		subprocess.Popen([sys.executable, "-I", os.path.abspath(__file__), "_unpack-home", argv[1]],
+			stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+		print(json.dumps({"ok": True}))
+	elif len(argv) == 2 and argv[0] == "_unpack-home":
+		unpack_home(argv[1])
 	elif len(argv) == 2 and argv[0] == "_fetch":
 		fetch(argv[1])
 	elif len(argv) in (3, 4) and argv[0] == "setup":
