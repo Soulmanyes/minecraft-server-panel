@@ -1,0 +1,13 @@
+# Noctalia plugin source: one [[plugin]] row per plugin subfolder.
+
+[[plugin]]
+id = "soulmanyes/minecraft-server-panel"
+name = "Minecraft Server Panel"
+version = "1.0.0"
+author = "Soulmanyes"
+license = "CC0-1.0"
+icon = "server"
+description = "Minecraft servers on a Linux box over ssh: status, players, start/stop, backups, alerts, adding server packs."
+deprecated = false
+plugin_api = 32
+tags = ["minecraft", "server", "gaming", "bar", "panel"]

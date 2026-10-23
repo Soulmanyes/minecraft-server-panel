@@ -1,0 +1,54 @@
+id = "soulmanyes/minecraft-server-panel"
+name = "Minecraft Server Panel"
+version = "1.0.0"
+# 32: container tooltips; also require (22).
+plugin_api = 32
+author = "Soulmanyes"
+license = "CC0-1.0"
+icon = "server"
+description = "Minecraft servers on a Linux box over ssh: status, players, start/stop, backups, alerts, adding server packs."
+tags = ["minecraft", "server", "gaming", "bar", "panel"]
+dependencies = ["python3", "ssh", "rsync", "zenity"]
+
+[[setting]]
+key = "host"
+type = "string"
+label_key = "settings.host.label"
+description_key = "settings.host.description"
+default = "mcpanel"
+
+[[setting]]
+key = "folder"
+type = "string"
+label_key = "settings.folder.label"
+description_key = "settings.folder.description"
+default = "minecraft-server-panel"
+
+[[setting]]
+key = "ports"
+type = "string"
+label_key = "settings.ports.label"
+description_key = "settings.ports.description"
+default = "25565-25575"
+
+[[setting]]
+key = "title"
+type = "string"
+label_key = "settings.title.label"
+description_key = "settings.title.description"
+default = "Minecraft servers"
+
+[[widget]]
+id = "bar"
+entry = "bar.luau"
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+width = 960
+height = 900
+placement = "floating"
+position = "auto"
+open_near_click = true
+dismiss_on_outside_click = true
+capture_keys = ["escape"]
