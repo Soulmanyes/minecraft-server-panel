@@ -92,12 +92,22 @@ if noctalia msg plugins source list | grep -q "^$SOURCE "; then
 else
 	noctalia msg plugins source add "$SOURCE" git "$REPO" > /dev/null
 fi
+# Noctalia fetches the repo in the background, which can take a minute or two.
+printf 'Waiting for Noctalia to download it'
+tries=0
+until noctalia msg plugins list 2> /dev/null | grep -q "^$PLUGIN "; do
+	tries=$((tries + 1))
+	[ "$tries" -le 60 ] || die "Noctalia hasn't downloaded the plugin after 3 minutes. Restart Noctalia and run this again."
+	printf '.'
+	sleep 3
+done
+echo
 noctalia msg plugins enable "$PLUGIN" > /dev/null
 echo "Enabled $PLUGIN."
 
 say "Copying the agent to the box"
 client=""
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
 	client=$(ls "$HOME"/.local/state/noctalia/plugins/materialized/*/minecraft-server-panel/client.py 2> /dev/null | head -n 1)
 	[ -n "$client" ] && break
 	sleep 2
