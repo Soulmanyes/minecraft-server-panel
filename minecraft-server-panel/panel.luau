@@ -116,6 +116,55 @@ local function toggleAuto(server)
   end)
 end
 
+local renaming = {} -- server id -> typed name while its rename box is open
+
+local function saveName(server)
+  local name = tostring(renaming[server.id] or "")
+  sending[server.id] = true
+  render()
+  shared.run({ "rename", server.id, name }, function(result)
+    sending[server.id] = nil
+    if result ~= nil and result.ok then
+      renaming[server.id] = nil
+    else
+      noctalia.notifyError(shared.config().title, noctalia.tr("ui.rename-failed", { server = tostring(server.name),
+        error = tostring(result and result.error or "no answer") }))
+    end
+    refresh(true)
+  end)
+end
+
+-- A card's title: the name with a rename pencil and the state, or the rename box.
+local function titleRows(s, stateText, stateColor)
+  local id = s.id
+  if renaming[id] ~= nil then
+    return { ui.row({ align = "center", gap = 6 }, {
+      ui.input({ key = "rename-" .. id, value = tostring(renaming[id]), controlSize = "sm", flexGrow = 1,
+        placeholder = noctalia.tr("ui.rename-placeholder"),
+        onChange = function(text) renaming[id] = text; render() end }),
+      ui.button({ text = noctalia.tr("ui.rename-save"), variant = "primary", controlSize = "sm",
+        enabled = not sending[id], onClick = function() saveName(s) end }),
+      ui.button({ text = noctalia.tr("ui.cancel"), variant = "ghost", controlSize = "sm",
+        onClick = function() renaming[id] = nil; render() end }),
+    }) }
+  end
+  local rows = { ui.row({ align = "center", gap = 4 }, {
+    ui.label({ text = tostring(s.name), fontSize = 14, fontWeight = "bold", maxLines = 1 }),
+    ui.button({ glyph = "pencil", variant = "ghost", controlSize = "sm", tooltip = noctalia.tr("ui.rename"),
+      onClick = function() renaming[id] = tostring(s.name); render() end }),
+    ui.spacer({ flexGrow = 1 }),
+    ui.label({ text = stateText, fontSize = 11, fontWeight = "bold", color = stateColor }),
+  }) }
+  -- Still running in the session of its old name: it moves on the next restart.
+  local session = tostring(s.session or "")
+  local tmux = tostring(s.tmux or "")
+  if s.state ~= "stopped" and session ~= "" and tmux ~= "" and tmux ~= session and tmux:sub(1, #session + 1) ~= session .. "-" then
+    rows[#rows + 1] = ui.label({ text = noctalia.tr("ui.rename-session", { session = session }), fontSize = 11,
+                                 color = "tertiary", maxLines = 2 })
+  end
+  return rows
+end
+
 local function meter(label, value, fraction)
   return ui.column({ gap = 3, flexGrow = 1 }, {
     ui.row({ align = "center" }, {
@@ -456,13 +505,8 @@ local function serverCard(s)
     bits[#bits + 1] = string.format("%.0f%% CPU", tonumber(s.cpu) or 0)
   end
 
-  local title = { ui.label({ text = tostring(s.name), fontSize = 14, fontWeight = "bold", flexGrow = 1, maxLines = 1 }) }
-  title[#title + 1] = ui.label({ text = stateText, fontSize = 11, fontWeight = "bold", color = STATE_COLOR[state] or "on_surface" })
-
-  local rows = {
-    ui.row({ align = "center", gap = 8 }, title),
-    ui.label({ text = table.concat(bits, " · "), fontSize = 11, color = "on_surface_variant", maxLines = 2 }),
-  }
+  local rows = titleRows(s, stateText, STATE_COLOR[state] or "on_surface")
+  rows[#rows + 1] = ui.label({ text = table.concat(bits, " · "), fontSize = 11, color = "on_surface_variant", maxLines = 2 })
   if state == "running" then
     local players = noctalia.tr("ui.players", { online = tostring(s.online or 0), max = tostring(s.max or 0) })
     if s.names ~= nil and #s.names > 0 then
@@ -841,14 +885,9 @@ local function setupCard(s, view)
   local busy = shared.busy(s)
   local working = busy ~= nil or sending[s.id] == true
   local state = tostring(s.state)
-  local rows = {
-    ui.row({ align = "center", gap = 8 }, {
-      ui.label({ text = tostring(s.name), fontSize = 14, fontWeight = "bold", flexGrow = 1, maxLines = 1 }),
-      ui.label({ text = noctalia.tr("ui.state-" .. state), fontSize = 11, fontWeight = "bold", color = "tertiary" }),
-    }),
-    ui.label({ text = noctalia.tr("ui.setup-from", { ago = shared.ago(s.installed), source = tostring(s.source) })
-      .. " · ~/" .. tostring(s.folder), fontSize = 11, color = "on_surface_variant", maxLines = 2 }),
-  }
+  local rows = titleRows(s, noctalia.tr("ui.state-" .. state), "tertiary")
+  rows[#rows + 1] = ui.label({ text = noctalia.tr("ui.setup-from", { ago = shared.ago(s.installed), source = tostring(s.source) })
+    .. " · ~/" .. tostring(s.folder), fontSize = 11, color = "on_surface_variant", maxLines = 2 })
   local a = s.action
   if a ~= nil and a.phase == "failed" and os.time() - (tonumber(a.updated) or 0) < FAILED_SHOWN_S then
     rows[#rows + 1] = ui.label({ text = noctalia.tr("ui.last-failed", {

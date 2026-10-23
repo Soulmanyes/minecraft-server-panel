@@ -8,6 +8,7 @@
   agent.py watch                   run by cron every minute while any server has auto-restart
   agent.py mods ID                 JSON list of a server's mods (read-only)
   agent.py ram ID MIN_MB MAX_MB    set -Xms / -Xmx (used from the next start)
+  agent.py rename ID NAME          set the name shown in the panel ("" = from the folder)
   agent.py free                    JSON: free disk space in bytes
   agent.py unpack UPLOAD NAME      unzip APP/uploads/UPLOAD into a new ~/<folder>
   agent.py fetch URL               download a server pack zip and unpack it (in the background)
@@ -175,12 +176,12 @@ def start_script(folder, mark):
 	return None
 
 
-def describe(entry, folder, mark):
+def describe(entry, folder, mark, names=None):
 	props = properties(os.path.join(folder, "server.properties"))
 	port = props.get("server-port", "")
 	return {
 		"id": slug(entry),
-		"name": pretty(entry),
+		"name": (names or {}).get(slug(entry)) or pretty(entry),
 		"folder": entry,
 		"dir": folder,
 		"port": int(port) if port.isdigit() else 25565,
@@ -198,15 +199,16 @@ def scan():
 	"""(servers, setup): the servers, and the folders unpacked from the panel
 	whose setup isn't finished yet."""
 	ready, setup = [], []
+	names = load_config().get("names", {})  # set with `rename`
 	for entry in sorted(os.listdir(HOME)):
 		folder = os.path.join(HOME, entry)
 		if not os.path.isdir(folder):
 			continue
 		mark = marker(folder)
 		if mark is not None and not mark.get("ready"):
-			setup.append(describe(entry, folder, mark))
+			setup.append(describe(entry, folder, mark, names))
 		elif os.path.isfile(os.path.join(folder, "server.properties")) and start_script(folder, mark):
-			ready.append(describe(entry, folder, mark))
+			ready.append(describe(entry, folder, mark, names))
 	return ready, setup
 
 
@@ -782,6 +784,7 @@ def status():
 	for s in found:
 		pid = pids[s["id"]]
 		entry = {k: s[k] for k in ("id", "name", "folder", "port", "heap")}
+		entry["session"] = session_name(s)
 		entry["crash"] = last_crash(s["dir"])
 		entry["backups"] = own_backups(s["id"])
 		entry["mod_backups"] = mod_backups(s["dir"])
@@ -904,11 +907,17 @@ def console(s, old_session=None):
 	"""The tmux target to type s's commands into: its own session
 	(session_name), created when needed. After a restart, old_session is the
 	session it ran in: when it holds just that one pane it is renamed, so the
-	console keeps its scrollback under the new name."""
+	console keeps its scrollback under the new name. The same happens to the
+	session it had before the server was renamed."""
 	name = session_name(s)
 	sessions = {}
 	for p in tmux_panes():
 		sessions.setdefault(p["session"], []).append(p)
+	config = load_config()
+	before = config.get("renamed_sessions", {}).pop(s["id"], None)
+	if before is not None:
+		save_json(CONFIG, config)
+		old_session = old_session or before
 	if old_session and old_session != name and name not in sessions and len(sessions.get(old_session, [])) == 1:
 		tmux("rename-session", "-t", old_session, name)
 		sessions[name] = sessions.pop(old_session)
@@ -1076,6 +1085,29 @@ def do_restore(s, name, write):
 	if was_running:
 		write("starting")
 		do_start(s)
+
+
+# Renaming --------------------------------------------------------------------
+
+def rename(s, name):
+	"""Sets s's display name ("" = back to the one made from the folder name).
+	The folder and id stay; the tmux session follows on the next start."""
+	name = re.sub(r"[\x00-\x1f]", "", name).strip()
+	if len(name) > 40:
+		raise RuntimeError("a name can be at most 40 characters")
+	config = load_config()
+	names = config.setdefault("names", {})
+	before = session_name(s)
+	if name:
+		names[s["id"]] = name
+	else:
+		names.pop(s["id"], None)
+	after = session_name(dict(s, name=name or pretty(s["folder"])))
+	if after != before:
+		# Keep the oldest name: that's the one its tmux session still has.
+		config.setdefault("renamed_sessions", {}).setdefault(s["id"], before)
+	save_json(CONFIG, config)
+	return name or pretty(s["folder"])
 
 
 # Installing a server pack ---------------------------------------------------
@@ -1513,6 +1545,12 @@ def main(argv):
 	elif len(argv) == 4 and argv[0] == "ram" and argv[2].isdigit() and argv[3].isdigit():
 		try:
 			print(json.dumps({"ok": True, "ram": set_ram(find(argv[1]), int(argv[2]), int(argv[3]))}))
+		except (RuntimeError, OSError) as e:
+			print(json.dumps({"ok": False, "error": str(e)}))
+			return 1
+	elif len(argv) == 3 and argv[0] == "rename":
+		try:
+			print(json.dumps({"ok": True, "name": rename(find(argv[1]), argv[2])}))
 		except (RuntimeError, OSError) as e:
 			print(json.dumps({"ok": False, "error": str(e)}))
 			return 1

@@ -9,6 +9,7 @@
   client.py auto ID on|off         auto-restart after a crash (runs on the server)
   client.py mods ID                the server's mod list (read-only)
   client.py ram ID MIN_MB MAX_MB   set a server's -Xms / -Xmx
+  client.py rename ID NAME         set the name shown in the panel ("" = from the folder)
   client.py candidates             the newest server pack zips in ~/Downloads
   client.py install pick|FILE      upload a server pack zip (pick: choose it with zenity) and
                                    unpack it into a new folder on the server, in the background
@@ -331,6 +332,10 @@ def main(argv):
 			os.remove(CACHE)
 		except OSError:
 			pass
+		print(json.dumps(data if data is not None else {"ok": False, "error": error}))
+	elif len(argv) == 3 and argv[0] == "rename":
+		data, error = ssh("python3", "-I", REMOTE, "rename", shlex.quote(argv[1]), shlex.quote(argv[2]))
+		drop_cache()
 		print(json.dumps(data if data is not None else {"ok": False, "error": error}))
 	elif len(argv) == 2 and argv[0] == "mods":
 		data, error = ssh("python3", "-I", REMOTE, "mods", shlex.quote(argv[1]), timeout=90)

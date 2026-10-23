@@ -129,7 +129,12 @@
     "setup-java": "Java",
     "setup-java-default": "Default",
     "setup-java-needed": "Minecraft {mc} needs Java {java}",
-    "setup-java-current": "Runs {java}"
+    "setup-java-current": "Runs {java}",
+    "rename": "Rename",
+    "rename-placeholder": "Name (empty = from the folder name)",
+    "rename-save": "Save",
+    "rename-failed": "Couldn't rename {server}: {error}",
+    "rename-session": "tmux session becomes \"{session}\" on the next restart"
   },
   "settings": {
     "host": {
