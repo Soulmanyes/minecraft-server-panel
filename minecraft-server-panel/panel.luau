@@ -551,10 +551,13 @@ local function serverCard(s)
   end
   local buttons = actionButtons(s, busy ~= nil)
   table.insert(buttons, 1, ui.spacer({ flexGrow = 1 }))
+  -- Keeps the buttons at the bottom when the card is stretched to its row's height.
+  rows[#rows + 1] = ui.spacer({ flexGrow = 1 })
   rows[#rows + 1] = ui.row({ align = "center", gap = 6 }, buttons)
 
   return ui.column({
     key = "server-" .. tostring(s.id),
+    width = CARD_WIDTH,
     gap = 6,
     padding = 12,
     radius = 10,
@@ -1054,14 +1057,13 @@ function render()
     end
     return tostring(a.name):lower() < tostring(b.name):lower()
   end)
-  -- Cards go into COLUMNS stacks, left to right, so running servers fill the top row.
-  local stacks = {}
-  for i = 1, COLUMNS do
-    stacks[i] = {}
-  end
+  -- Cards go into rows of COLUMNS, left to right, so running servers fill the top row.
+  -- Each row stretches its cards to the tallest one, so the grid stays aligned.
+  local gridRows = {}
   for i, s in ipairs(list) do
-    local stack = stacks[(i - 1) % COLUMNS + 1]
-    stack[#stack + 1] = serverCard(s)
+    local r = math.floor((i - 1) / COLUMNS) + 1
+    gridRows[r] = gridRows[r] or {}
+    table.insert(gridRows[r], serverCard(s))
   end
   -- Adding a server and new servers' setup go above the server cards, full width.
   local content = {}
@@ -1078,11 +1080,9 @@ function render()
   if #list == 0 then
     content[#content + 1] = ui.label({ text = noctalia.tr("ui.no-servers"), color = "on_surface_variant" })
   else
-    local columns = {}
-    for i = 1, COLUMNS do
-      columns[i] = ui.column({ key = "stack-" .. tostring(i), gap = 8, width = CARD_WIDTH }, stacks[i])
+    for r, cards in ipairs(gridRows) do
+      content[#content + 1] = ui.row({ key = "grid-" .. tostring(r), gap = 8, align = "stretch" }, cards)
     end
-    content[#content + 1] = ui.row({ key = "grid", gap = 8, align = "start" }, columns)
   end
   body[#body + 1] = ui.scroll({ flexGrow = 1 }, { ui.column({ gap = 8 }, content) })
   local stamp = data.error ~= nil and noctalia.tr("ui.last-seen", { ago = shared.ago(view.time) })
