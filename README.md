@@ -6,7 +6,7 @@ A [Noctalia](https://github.com/noctalia-dev) bar plugin for watching and runnin
 
 - **Bar widget:** a server glyph plus the number of players online. It turns primary while someone plays, and shows an error colour when the box can't be reached. The tooltip lists the running servers, their players, and the box's CPU and RAM.
 - **Panel:** CPU, RAM and disk meters, load and uptime, then one card per server. Each card shows the server's state (running, starting, stopping, not answering, stopped), port, version, uptime, RAM, CPU and players with names.
-- **Install agent** button: when the agent isn't on the box yet, the panel offers to copy it there.
+- **Install agent** button: when the agent isn't on the box yet, the panel offers to copy it there. When the box has an older agent than the plugin, the panel copies the new one over by itself.
 - **Rename** a server with the pencil next to its name (empty = the name made from the folder). Only the shown name changes, not the folder. Its tmux session takes the new name on the next start or restart.
 - **Start, Stop and Restart** per server. Stop and Restart need a second click. A terminal button opens the server's tmux console (`ssh -t HOST tmux attach`).
 - When the box can't be reached, the panel keeps showing the last data it got, with its age.
@@ -55,7 +55,7 @@ Then add the "Minecraft Server Panel" widget to your bar in Noctalia's settings,
 
 To read the script before running it: clone the repo and run `./install.sh`. It's safe to run again; finished steps are skipped. If you already have an ssh alias for the box, set **SSH host** in the plugin's settings to it instead.
 
-**Updating:** run the install command again. It updates the plugin and copies the new agent to the box.
+**Updating:** Noctalia downloads plugin updates by itself each time it starts, and the panel then copies the new agent to the box on its next refresh. Running the install command again does the same right away.
 
 **Firewall:** players need the server's port open on the box (`firewalld`, `ufw`), at your cloud provider (security list, security group) or on your router. The panel doesn't open ports.
 

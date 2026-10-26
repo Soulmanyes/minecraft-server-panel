@@ -17,7 +17,8 @@
   client.py install box NAME       unpack a zip that is already in the box's home directory
   client.py setup KIND ID [ARG]    a new server's setup step (see agent.py)
   client.py action installer ID JAR  run a Forge/NeoForge installer in the server's console
-  client.py deploy                 copy server/agent.py to the server
+  client.py deploy                 copy server/agent.py to the server (status also does
+                                   this by itself when the box runs an older agent)
 
 Settings come from the environment (the plugin passes its settings):
   SERVER_PANEL_HOST   ssh host of the box: an ~/.ssh/config alias or user@host
@@ -35,6 +36,7 @@ notices switched on. The bars on every monitor share one fetch, so each
 alert is sent once.
 """
 import fcntl
+import hashlib
 import json
 import re
 import shlex
@@ -213,6 +215,11 @@ def status(fresh=False):
 			# Keep failures cached too, so an unreachable server isn't retried by every bar at once.
 			data = out
 		else:
+			if data.get("agent_hash") != local_agent_hash() and deploy() is None:
+				# The plugin was updated but the box still runs the old agent: copy the
+				# new one over and ask again. If the copy fails, keep using the old one.
+				fresh_data, _ = ssh("python3", "-I", REMOTE, "status")
+				data = fresh_data or data
 			data["fetched"] = int(time.time())
 			alerts(data)
 		tmp = CACHE + ".tmp"
@@ -220,6 +227,26 @@ def status(fresh=False):
 			json.dump(data, f)
 		os.replace(tmp, CACHE)
 		return data
+
+
+def local_agent_hash():
+	with open(os.path.join(HERE, "server", "agent.py"), "rb") as f:
+		return hashlib.sha256(f.read()).hexdigest()
+
+
+def deploy():
+	"""Copies server/agent.py to the box. Returns None, or the error text.
+	It goes to a temporary name first and is renamed over the old agent, so a
+	backup or watch run that is going on keeps the code it already loaded."""
+	try:
+		subprocess.run(SSH + [HOST, "mkdir", "-p", APP], check=True, timeout=30, capture_output=True)
+		subprocess.run(["scp", "-q", "-o", f"ControlPath={RUNTIME}/ssh-%C", os.path.join(HERE, "server", "agent.py"),
+			f"{HOST}:{REMOTE}.new"], check=True, timeout=60, capture_output=True)
+		subprocess.run(SSH + [HOST, "mv", "-f", f"{REMOTE}.new", REMOTE], check=True, timeout=30, capture_output=True)
+	except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+		err = getattr(e, "stderr", b"") or b""
+		return (err.decode("utf-8", "replace").strip().splitlines() or ["deploy failed"])[-1]
+	return None
 
 
 def drop_cache():
@@ -393,13 +420,9 @@ def main(argv):
 		drop_cache()
 		print(json.dumps(data if data is not None else {"ok": False, "error": error}))
 	elif argv[:1] == ["deploy"]:
-		try:
-			subprocess.run(SSH + [HOST, "mkdir", "-p", APP], check=True, timeout=30, capture_output=True)
-			subprocess.run(["scp", "-q", "-o", f"ControlPath={RUNTIME}/ssh-%C", os.path.join(HERE, "server", "agent.py"),
-				f"{HOST}:{REMOTE}"], check=True, timeout=60, capture_output=True)
-		except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-			err = getattr(e, "stderr", b"") or b""
-			print(json.dumps({"ok": False, "error": (err.decode("utf-8", "replace").strip().splitlines() or ["deploy failed"])[-1]}))
+		error = deploy()
+		if error:
+			print(json.dumps({"ok": False, "error": error}))
 			return 1
 		drop_cache()
 		print(json.dumps({"ok": True}))

@@ -42,6 +42,7 @@ default); it also holds state/, uploads/ and file-backups/.
 
 Python 3.9, stdlib only.
 """
+import hashlib
 import json
 import os
 import re
@@ -845,7 +846,14 @@ def status():
 				entry["state"] = "starting"
 		out.append(entry)
 	return {"time": int(time.time()), "host": host(round(100.0 * (1 - (i1 - i0) / span), 1)), "servers": out,
-		"setup": [setup_entry(s, javas, panes) for s in setup], "fetch": read_fetch(), "box_zips": box_zips()}
+		"setup": [setup_entry(s, javas, panes) for s in setup], "fetch": read_fetch(), "box_zips": box_zips(),
+		"agent_hash": file_hash(__file__)}
+
+
+def file_hash(path):
+	"""sha256 of a file: the client compares it with its own copy of this agent."""
+	with open(path, "rb") as f:
+		return hashlib.sha256(f.read()).hexdigest()
 
 
 # Actions -------------------------------------------------------------------
