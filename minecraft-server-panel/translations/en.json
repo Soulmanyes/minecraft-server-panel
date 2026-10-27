@@ -23,6 +23,7 @@
     "up": "up {time}",
     "players": "{online}/{max} online",
     "console": "Open console (tmux {session})",
+    "copy-address": "Copy the address players join with: {address}",
     "btn-start": "Start",
     "btn-stop": "Stop",
     "btn-restart": "Restart",

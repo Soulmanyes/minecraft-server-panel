@@ -224,6 +224,13 @@ local function actionButtons(s, busy)
         noctalia.runInTerminal("ssh -t " .. shared.config().host .. " tmux attach -t '" .. tostring(s.tmux):gsub("'", "") .. "'")
       end })
   end
+  local address = tostring((shared.view(data) or {}).address or "")
+  if address ~= "" then
+    local full = address .. ":" .. tostring(s.port)
+    out[#out + 1] = ui.button({ glyph = "copy", variant = "ghost", controlSize = "sm",
+      tooltip = noctalia.tr("ui.copy-address", { address = full }),
+      onClick = function() noctalia.copyToClipboard(full, "text/plain") end })
+  end
   local working = busy or sending[id]
   if s.state == "stopped" then
     out[#out + 1] = ui.button({ text = noctalia.tr("ui.btn-start"), glyph = "player-play", variant = "primary",

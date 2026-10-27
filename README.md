@@ -9,6 +9,7 @@ A [Noctalia](https://github.com/noctalia-dev) bar plugin for watching and runnin
 - **Install agent** button: when the agent isn't on the box yet, the panel offers to copy it there. When the box has an older agent than the plugin, the panel copies the new one over by itself.
 - **Rename** a server with the pencil next to its name (empty = the name made from the folder). Only the shown name changes, not the folder. Its tmux session takes the new name on the next start or restart.
 - **Start, Stop and Restart** per server. Stop and Restart need a second click. A terminal button opens the server's tmux console (`ssh -t HOST tmux attach`).
+- **Copy address** per server: the copy button puts the address players join with on the clipboard, as `address:port`. The address is the `HostName` your ssh config has for the box (`ssh -G HOST`), so it's only right when that's the box's public address or name.
 - When the box can't be reached, the panel keeps showing the last data it got, with its age.
 - **Alerts** (desktop notifications) when a server goes down or stops answering without a Stop from the panel ("crashed" when it wrote a crash report), and when the disk passes 85 % (sent again after it drops below 80 %). They only arrive while this PC is on and Noctalia runs.
 - **Join/leave notices** per server: the bell on a server's card turns on a notification for each player who joins or leaves (by name; on a big server that lists only some names, by count). Off by default; the choice is kept in `~/.config/minecraft-server-panel/config.json`.

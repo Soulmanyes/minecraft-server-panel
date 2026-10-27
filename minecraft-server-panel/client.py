@@ -223,12 +223,24 @@ def status(fresh=False):
 				fresh_data, _ = ssh("python3", "-I", REMOTE, "status")
 				data = fresh_data or data
 			data["fetched"] = int(time.time())
+			data["address"] = join_address()
 			alerts(data)
 		tmp = CACHE + ".tmp"
 		with open(tmp, "w") as f:
 			json.dump(data, f)
 		os.replace(tmp, CACHE)
 		return data
+
+
+def join_address():
+	"""The box's address as players type it, from the ssh config's HostName for
+	HOST ("" if ssh can't say). IPv6 gets brackets so a port can follow."""
+	try:
+		out = subprocess.run(["ssh", "-G", HOST], check=False, capture_output=True, text=True, timeout=5).stdout
+	except (OSError, subprocess.TimeoutExpired):
+		return ""
+	host = next((line.split(None, 1)[1] for line in out.splitlines() if line.startswith("hostname ")), "")
+	return f"[{host}]" if ":" in host else host
 
 
 def local_agent_version():
