@@ -59,6 +59,9 @@ import zipfile
 
 HOME = os.path.expanduser("~")
 APP = os.path.dirname(os.path.abspath(__file__))
+# Raise this with every change to this file: the client only copies an agent with a
+# higher number over the box's one, so two PCs on different versions don't swap it back and forth.
+AGENT_VERSION = 2
 STATE = os.path.join(APP, "state")
 STOP_WAIT = 300  # a big modpack can take minutes to save
 START_WAIT = 60  # until the java process shows up
@@ -847,7 +850,7 @@ def status():
 		out.append(entry)
 	return {"time": int(time.time()), "host": host(round(100.0 * (1 - (i1 - i0) / span), 1)), "servers": out,
 		"setup": [setup_entry(s, javas, panes) for s in setup], "fetch": read_fetch(), "box_zips": box_zips(),
-		"agent_hash": file_hash(__file__)}
+		"agent_hash": file_hash(__file__), "agent_version": AGENT_VERSION}
 
 
 def file_hash(path):

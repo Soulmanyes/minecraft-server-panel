@@ -18,7 +18,7 @@
   client.py setup KIND ID [ARG]    a new server's setup step (see agent.py)
   client.py action installer ID JAR  run a Forge/NeoForge installer in the server's console
   client.py deploy                 copy server/agent.py to the server (status also does
-                                   this by itself when the box runs an older agent)
+                                   this by itself when the box runs an older AGENT_VERSION)
 
 Settings come from the environment (the plugin passes its settings):
   SERVER_PANEL_HOST   ssh host of the box: an ~/.ssh/config alias or user@host
@@ -36,7 +36,6 @@ notices switched on. The bars on every monitor share one fetch, so each
 alert is sent once.
 """
 import fcntl
-import hashlib
 import json
 import re
 import shlex
@@ -62,6 +61,8 @@ UP = ("running", "starting")
 LAG_WARNINGS = 3  # "Can't keep up" lines within 5 min before a lag alert
 LAG_QUIET_S = 1800  # at most one lag alert per server this often
 REMOTE = f"{APP}/agent.py"
+DEPLOY_FAILED = os.path.join(RUNTIME, "deploy-failed")  # when the last automatic copy failed
+DEPLOY_RETRY_S = 1800  # after a failed copy, wait this long before trying again
 INSTALL = os.path.join(RUNTIME, "install.json")  # progress of `install`
 DOWNLOADS = os.path.expanduser("~/Downloads")
 # One shared connection, kept for a while, so polling doesn't redo the handshake.
@@ -215,9 +216,10 @@ def status(fresh=False):
 			# Keep failures cached too, so an unreachable server isn't retried by every bar at once.
 			data = out
 		else:
-			if data.get("agent_hash") != local_agent_hash() and deploy() is None:
-				# The plugin was updated but the box still runs the old agent: copy the
+			if data.get("agent_version", 0) < local_agent_version() and deploy_due() and deploy() is None:
+				# The plugin was updated but the box still runs an older agent: copy the
 				# new one over and ask again. If the copy fails, keep using the old one.
+				# Agents from before AGENT_VERSION report none and count as 0.
 				fresh_data, _ = ssh("python3", "-I", REMOTE, "status")
 				data = fresh_data or data
 			data["fetched"] = int(time.time())
@@ -229,9 +231,19 @@ def status(fresh=False):
 		return data
 
 
-def local_agent_hash():
-	with open(os.path.join(HERE, "server", "agent.py"), "rb") as f:
-		return hashlib.sha256(f.read()).hexdigest()
+def local_agent_version():
+	with open(os.path.join(HERE, "server", "agent.py")) as f:
+		m = re.search(r"^AGENT_VERSION = (\d+)", f.read(), re.MULTILINE)
+	return int(m.group(1)) if m else 0
+
+
+def deploy_due():
+	"""False for DEPLOY_RETRY_S after a failed copy, so an unreachable box doesn't
+	stall every status call (they wait on the lock) with a new attempt."""
+	try:
+		return time.time() - os.path.getmtime(DEPLOY_FAILED) > DEPLOY_RETRY_S
+	except OSError:
+		return True
 
 
 def deploy():
@@ -244,8 +256,13 @@ def deploy():
 			f"{HOST}:{REMOTE}.new"], check=True, timeout=60, capture_output=True)
 		subprocess.run(SSH + [HOST, "mv", "-f", f"{REMOTE}.new", REMOTE], check=True, timeout=30, capture_output=True)
 	except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+		open(DEPLOY_FAILED, "w").close()
 		err = getattr(e, "stderr", b"") or b""
 		return (err.decode("utf-8", "replace").strip().splitlines() or ["deploy failed"])[-1]
+	try:
+		os.remove(DEPLOY_FAILED)
+	except OSError:
+		pass
 	return None
 
 
