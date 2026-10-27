@@ -37,9 +37,9 @@ alert is sent once.
 """
 import fcntl
 import json
+import os
 import re
 import shlex
-import os
 import subprocess
 import sys
 import time
@@ -72,7 +72,7 @@ SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ControlMas
 
 def ssh(*remote, timeout=25):
 	try:
-		r = subprocess.run(SSH + [HOST, *remote], capture_output=True, text=True, timeout=timeout)
+		r = subprocess.run(SSH + [HOST, *remote], check=False, capture_output=True, text=True, timeout=timeout)
 	except subprocess.TimeoutExpired:
 		return None, "ssh timed out"
 	if r.returncode == 255:
@@ -316,7 +316,7 @@ def install(source):
 		if source == "pick":
 			report("picking")
 			r = subprocess.run(["zenity", "--file-selection", "--title=Server pack zip",
-				f"--filename={DOWNLOADS}/", "--file-filter=Zip files | *.zip *.ZIP"], capture_output=True, text=True)
+				f"--filename={DOWNLOADS}/", "--file-filter=Zip files | *.zip *.ZIP"], check=False, capture_output=True, text=True)
 			source = r.stdout.strip()
 			if r.returncode != 0 or not source:
 				os.remove(INSTALL)  # cancelled

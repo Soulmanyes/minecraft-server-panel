@@ -61,7 +61,7 @@ HOME = os.path.expanduser("~")
 APP = os.path.dirname(os.path.abspath(__file__))
 # Raise this with every change to this file: the client only copies an agent with a
 # higher number over the box's one, so two PCs on different versions don't swap it back and forth.
-AGENT_VERSION = 2
+AGENT_VERSION = 3
 STATE = os.path.join(APP, "state")
 STOP_WAIT = 300  # a big modpack can take minutes to save
 START_WAIT = 60  # until the java process shows up
@@ -264,7 +264,7 @@ def tmux_panes():
 	try:
 		out = subprocess.run(["tmux", "list-panes", "-a", "-F",
 			"#{pane_id}\t#{session_name}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}"],
-			capture_output=True, text=True, timeout=5).stdout
+			check=False, capture_output=True, text=True, timeout=5).stdout
 	except (OSError, subprocess.TimeoutExpired):
 		return []
 	panes = []
@@ -493,8 +493,10 @@ def set_ram(s, min_mb, max_mb):
 	variables = os.path.join(s["dir"], "variables.txt")
 	if name == "variables.txt":
 		edits = [(name, no_flags)]
-	elif os.path.exists(variables) and HEAP_FLAG.search(open(variables, errors="replace").read()):
-		edits.append(("variables.txt", lambda text, missing: text))
+	elif os.path.exists(variables):
+		with open(variables, errors="replace") as f:
+			if HEAP_FLAG.search(f.read()):
+				edits.append(("variables.txt", lambda text, missing: text))
 	stamp = time.strftime("%Y%m%d-%H%M%S")
 	folder = os.path.join(FILE_BACKUPS, s["id"])
 	for fname, add in edits:
@@ -619,7 +621,7 @@ def save_json(path, data):
 
 def set_cron(enabled):
 	"""Adds or removes the one crontab line that runs `watch` every minute."""
-	current = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
+	current = subprocess.run(["crontab", "-l"], check=False, capture_output=True, text=True).stdout
 	lines = [l for l in current.splitlines() if CRON_TAG not in l]
 	if enabled:
 		lines.append(f"* * * * * {sys.executable} -I {os.path.abspath(__file__)} watch >/dev/null 2>&1 {CRON_TAG}")
@@ -1161,7 +1163,7 @@ def unpack(upload, name, path=None):
 			target = os.path.join(HOME, folder)
 			if os.path.lexists(target):
 				raise RuntimeError(f"~/{folder} already exists")
-			taken = next((o for o in sum(scan(), []) if o["id"] == slug(folder)), None)
+			taken = next((o for group in scan() for o in group if o["id"] == slug(folder)), None)
 			if taken:
 				raise RuntimeError(f"its name is too close to ~/{taken['folder']}")
 			if sum(i.file_size for i in infos) + (2 << 30) > free_bytes():
